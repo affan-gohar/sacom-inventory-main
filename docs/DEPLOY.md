@@ -18,26 +18,16 @@ Hostinger as a new release, runs migrations, then switches the `current` symlink
 
 ## One-time setup
 
-1. **hPanel → Advanced → PHP Configuration:** PHP **8.4** (composer.lock needs ≥ 8.4.1). Extensions: intl, gd, zip, bcmath, pdo_mysql.
-2. **hPanel → Databases → MySQL:** create a database + user. Note the names (prefixed `u836570940_`).
-3. **hPanel → Advanced → SSH Access:** enable SSH; add the deploy **public** key. Note host, port (65002), username.
-4. **Server `.env`:** SSH in and run
-   ```sh
-   mkdir -p ~/domains/mysacom.com/sacom-inventory/shared
-   nano ~/domains/mysacom.com/sacom-inventory/shared/.env   # paste .env.production.example, fill DB_*
-   ```
-   Leave `APP_KEY=` empty for now.
-5. **GitHub → Settings → Secrets and variables → Actions** (environment `production` or repo):
-   - Secrets: `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_PORT` (65002), `SSH_USER`
-   - Optional variables: `APP_DIR`, `WEB_ROOT`, `PHP_BIN` (e.g. `/opt/alt/php84/usr/bin/php` if CLI `php -v` isn't 8.4)
-6. Push to `main` (or *Actions → Test & Deploy → Run workflow*).
-7. After the first deploy, SSH in once:
-   ```sh
-   cd ~/domains/mysacom.com/sacom-inventory/current
-   php artisan key:generate --force && php artisan optimize
-   php artisan db:seed --force      # creates Main Shop + admin; prints the admin password once
-   ```
-8. **hPanel → Security → SSL:** make sure stock.mysacom.com has an active certificate.
+1. **hPanel → Databases:** `u836570940_sacominv` (db + user). Separate from the main site's DB.
+2. **hPanel → SSH Access:** SSH enabled; deploy key `github-actions-sacom-deploy` added.
+3. **GitHub → Settings → Secrets and variables → Actions:**
+   - Secrets: `SSH_PRIVATE_KEY` (contents of `.deploy-keys/hostinger_deploy`, local only), `SSH_HOST` = `147.93.25.68`,
+     `SSH_PORT` = `65002`, `SSH_USER` = `u836570940`, `DB_PASSWORD`, `ADMIN_INITIAL_PASSWORD`
+   - Optional variables: `PHP_BIN`, `WEB_PHP_HANDLER`, `DB_DATABASE`, `DB_USERNAME`, `APP_DIR`, `WEB_ROOT`
+4. Push to `main`. The first deploy writes `shared/.env` from the secrets, generates `APP_KEY`, migrates,
+   seeds the Main Shop + `admin` user (password = `ADMIN_INITIAL_PASSWORD`; change it after first login),
+   and points `public_html/stock` at the app. Later deploys never overwrite `shared/.env`.
+5. The main mysacom.com site, its PHP version and its database are not touched.
 
 ## Later
 

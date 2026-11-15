@@ -93,28 +93,62 @@ jobs:
             IdentitiesOnly yes
           CFG
 
+      - name: Render production .env (used only on first deploy)
+        env:
+          DB_DATABASE: ${{ vars.DB_DATABASE || 'u836570940_sacominv' }}
+          DB_USERNAME: ${{ vars.DB_USERNAME || 'u836570940_sacominv' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          test -n "$DB_PASSWORD" || { echo "::error::DB_PASSWORD secret missing"; exit 1; }
+          python3 - <<'PY2'
+          import os
+          def esc(v):
+              assert "'" not in v and '\n' not in v, "DB_PASSWORD must not contain a single quote or newline"
+              return "'" + v + "'"   # single quotes = literal in phpdotenv
+          out = []
+          for line in open('.env.production.example'):
+              k = line.split('=', 1)[0]
+              if k in ('DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD'):
+                  line = f"{k}={esc(os.environ[k])}\n"
+              out.append(line)
+          open('/tmp/prod.env', 'w').write(''.join(out))
+          PY2
+          chmod 600 /tmp/prod.env
+
       - name: Upload release
         run: |
           ssh hostinger "mkdir -p $APP_DIR/releases/$RELEASE $APP_DIR/shared"
           rsync -az --delete \
             --exclude='/.git' --exclude='/.github' --exclude='/.env' --exclude='/storage' \
-            --exclude='/tests' --exclude='/node_modules' --exclude='/docs' \
+            --exclude='/tests' --exclude='/node_modules' --exclude='/docs' --exclude='/.deploy-keys' \
             --exclude='/public/storage' --exclude='/public/hot' \
             ./ hostinger:$APP_DIR/releases/$RELEASE/
+          scp -q /tmp/prod.env hostinger:$APP_DIR/shared/.env.incoming
+          rm -f /tmp/prod.env
 
       - name: Activate release
+        env:
+          ADMIN_INITIAL_PASSWORD: ${{ secrets.ADMIN_INITIAL_PASSWORD }}
         run: |
+          test -n "$ADMIN_INITIAL_PASSWORD" || { echo "::error::ADMIN_INITIAL_PASSWORD secret missing"; exit 1; }
+          printf '%s' "$ADMIN_INITIAL_PASSWORD" | ssh hostinger "umask 077; cat > $APP_DIR/shared/.admin-pass"
           ssh hostinger bash -s <<REMOTE
           set -euo pipefail
-          APP_DIR="$APP_DIR"; WEB_ROOT="$WEB_ROOT"; PHP="$PHP_BIN"; R="\$APP_DIR/releases/$RELEASE"
+          APP_DIR="$APP_DIR"; WEB_ROOT="$WEB_ROOT"; R="\$APP_DIR/releases/$RELEASE"
 
-          # Shared .env and storage (survive every release)
-          if [ ! -f "\$APP_DIR/shared/.env" ]; then
-            echo "::error::Missing \$APP_DIR/shared/.env - create it first (see docs/DEPLOY.md)"; exit 1
-          fi
-          if [ ! -d "\$APP_DIR/shared/storage" ]; then
-            cp -R "\$R/storage" "\$APP_DIR/shared/storage"
-          fi
+          # Pick a PHP >= 8.4 CLI (site-wide default may be older)
+          PHP=""
+          for c in "$PHP_BIN" /opt/alt/php84/usr/bin/php /opt/alt/php85/usr/bin/php /usr/bin/php8.4 /usr/local/bin/php8.4 php; do
+            if command -v "\$c" >/dev/null 2>&1 && "\$c" -r 'exit(version_compare(PHP_VERSION,"8.4.1")>=0?0:1);'; then PHP="\$c"; break; fi
+          done
+          [ -n "\$PHP" ] || { echo "::error::No PHP >= 8.4.1 CLI found"; ls /opt/alt 2>/dev/null; exit 1; }
+          echo "Using \$PHP (\$("\$PHP" -r 'echo PHP_VERSION;'))"
+
+          # Shared .env (created once) and storage
+          FIRST=0
+          if [ ! -f "\$APP_DIR/shared/.env" ]; then mv "\$APP_DIR/shared/.env.incoming" "\$APP_DIR/shared/.env"; FIRST=1; else rm -f "\$APP_DIR/shared/.env.incoming"; fi
+          chmod 600 "\$APP_DIR/shared/.env"
+          [ -d "\$APP_DIR/shared/storage" ] || cp -R "\$R/storage" "\$APP_DIR/shared/storage"
           mkdir -p "\$APP_DIR/shared/storage"/{app/public,framework/{cache/data,sessions,views},logs}
           rm -rf "\$R/storage"
           ln -sfn "\$APP_DIR/shared/storage" "\$R/storage"
@@ -122,22 +156,30 @@ jobs:
           ln -sfn "\$APP_DIR/shared/storage/app/public" "\$R/public/storage"
 
           cd "\$R"
+          grep -q '^APP_KEY=base64:' .env || "\$PHP" artisan key:generate --force
           "\$PHP" artisan migrate --force
+          # Production-safe seeder: Main Shop + admin (only if none) + business profile
+          ADMIN_INITIAL_PASSWORD="\$(cat "\$APP_DIR/shared/.admin-pass")" "\$PHP" artisan db:seed --force 2>&1 | sed -E 's/Password: [^ ]+/Password: ****/'
+          rm -f "\$APP_DIR/shared/.admin-pass"
           "\$PHP" artisan optimize
           "\$PHP" artisan filament:optimize || true
+
+          # Web PHP handler for this subdomain only (main site untouched)
+          if [ -n "${{ vars.WEB_PHP_HANDLER }}" ]; then
+            printf '%s\n' "AddHandler ${{ vars.WEB_PHP_HANDLER }} .php" | cat - public/.htaccess > public/.htaccess.new && mv public/.htaccess.new public/.htaccess
+          fi
 
           # Atomic switch
           ln -sfn "\$R" "\$APP_DIR/current.tmp" && mv -Tf "\$APP_DIR/current.tmp" "\$APP_DIR/current"
 
-          # Point the subdomain's web root at current/public (one-time conversion)
+          # Subdomain web root -> current/public (original folder kept aside, outside public_html)
           if [ -d "\$WEB_ROOT" ] && [ ! -L "\$WEB_ROOT" ]; then
             mv "\$WEB_ROOT" "\$APP_DIR/webroot-original-\$(date +%s)"
           fi
           ln -sfn "\$APP_DIR/current/public" "\$WEB_ROOT"
 
-          # Keep last 5 releases
           cd "\$APP_DIR/releases" && ls -1t | tail -n +6 | xargs -r rm -rf
-          echo "Deployed $RELEASE"
+          echo "Deployed $RELEASE (first=\$FIRST)"
           REMOTE
 
       - name: Smoke test
