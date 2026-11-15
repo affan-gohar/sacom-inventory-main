@@ -148,7 +148,6 @@ jobs:
           FIRST=0
           if [ ! -f "\$APP_DIR/shared/.env" ]; then mv "\$APP_DIR/shared/.env.incoming" "\$APP_DIR/shared/.env"; FIRST=1; else rm -f "\$APP_DIR/shared/.env.incoming"; fi
           chmod 600 "\$APP_DIR/shared/.env"
-          [ -d "\$APP_DIR/shared/storage" ] || cp -R "\$R/storage" "\$APP_DIR/shared/storage"
           mkdir -p "\$APP_DIR/shared/storage"/{app/public,framework/{cache/data,sessions,views},logs}
           rm -rf "\$R/storage"
           ln -sfn "\$APP_DIR/shared/storage" "\$R/storage"
