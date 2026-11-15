@@ -1,0 +1,147 @@
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -ppassword"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: testing
+      DB_USERNAME: root
+      DB_PASSWORD: password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, intl, gd, zip, bcmath, mbstring
+          coverage: none
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+      - name: Run tests (MySQL)
+        run: php artisan test
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      APP_DIR: ${{ vars.APP_DIR || '/home/u836570940/domains/mysacom.com/sacom-inventory' }}
+      WEB_ROOT: ${{ vars.WEB_ROOT || '/home/u836570940/domains/mysacom.com/public_html/stock' }}
+      PHP_BIN: ${{ vars.PHP_BIN || 'php' }}
+      RELEASE: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: intl, gd, zip, bcmath, mbstring
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build (no-dev vendor + Vite assets)
+        run: |
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
+          npm install --no-audit --no-fund
+          npm run build
+          rm -rf node_modules
+
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          test -n "$SSH_KEY" || { echo "::error::SSH_PRIVATE_KEY secret missing"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          ssh-keyscan -p "${SSH_PORT:-65002}" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat > ~/.ssh/config <<CFG
+          Host hostinger
+            HostName $SSH_HOST
+            Port ${SSH_PORT:-65002}
+            User ${{ secrets.SSH_USER }}
+            IdentityFile ~/.ssh/deploy
+            IdentitiesOnly yes
+          CFG
+
+      - name: Upload release
+        run: |
+          ssh hostinger "mkdir -p $APP_DIR/releases/$RELEASE $APP_DIR/shared"
+          rsync -az --delete \
+            --exclude='/.git' --exclude='/.github' --exclude='/.env' --exclude='/storage' \
+            --exclude='/tests' --exclude='/node_modules' --exclude='/docs' \
+            --exclude='/public/storage' --exclude='/public/hot' \
+            ./ hostinger:$APP_DIR/releases/$RELEASE/
+
+      - name: Activate release
+        run: |
+          ssh hostinger bash -s <<REMOTE
+          set -euo pipefail
+          APP_DIR="$APP_DIR"; WEB_ROOT="$WEB_ROOT"; PHP="$PHP_BIN"; R="\$APP_DIR/releases/$RELEASE"
+
+          # Shared .env and storage (survive every release)
+          if [ ! -f "\$APP_DIR/shared/.env" ]; then
+            echo "::error::Missing \$APP_DIR/shared/.env - create it first (see docs/DEPLOY.md)"; exit 1
+          fi
+          if [ ! -d "\$APP_DIR/shared/storage" ]; then
+            cp -R "\$R/storage" "\$APP_DIR/shared/storage"
+          fi
+          mkdir -p "\$APP_DIR/shared/storage"/{app/public,framework/{cache/data,sessions,views},logs}
+          rm -rf "\$R/storage"
+          ln -sfn "\$APP_DIR/shared/storage" "\$R/storage"
+          ln -sfn "\$APP_DIR/shared/.env" "\$R/.env"
+          ln -sfn "\$APP_DIR/shared/storage/app/public" "\$R/public/storage"
+
+          cd "\$R"
+          "\$PHP" artisan migrate --force
+          "\$PHP" artisan optimize
+          "\$PHP" artisan filament:optimize || true
+
+          # Atomic switch
+          ln -sfn "\$R" "\$APP_DIR/current.tmp" && mv -Tf "\$APP_DIR/current.tmp" "\$APP_DIR/current"
+
+          # Point the subdomain's web root at current/public (one-time conversion)
+          if [ -d "\$WEB_ROOT" ] && [ ! -L "\$WEB_ROOT" ]; then
+            mv "\$WEB_ROOT" "\$APP_DIR/webroot-original-\$(date +%s)"
+          fi
+          ln -sfn "\$APP_DIR/current/public" "\$WEB_ROOT"
+
+          # Keep last 5 releases
+          cd "\$APP_DIR/releases" && ls -1t | tail -n +6 | xargs -r rm -rf
+          echo "Deployed $RELEASE"
+          REMOTE
+
+      - name: Smoke test
+        run: |
+          sleep 3
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://stock.mysacom.com/admin/login)
+          echo "HTTP $code"; test "$code" = "200"
