@@ -163,10 +163,10 @@ jobs:
           "\$PHP" artisan optimize
           "\$PHP" artisan filament:optimize || true
 
-          # Web PHP handler for this subdomain only (main site untouched)
-          if [ -n "${{ vars.WEB_PHP_HANDLER }}" ]; then
-            printf '%s\n' "AddHandler ${{ vars.WEB_PHP_HANDLER }} .php" | cat - public/.htaccess > public/.htaccess.new && mv public/.htaccess.new public/.htaccess
-          fi
+          # Force PHP 8.4 for this app's folder only (Hostinger per-folder handler; main site untouched)
+          H="${{ vars.WEB_PHP_HANDLER || 'application/x-lsphp84' }}"
+          { printf '<FilesMatch "\\.(php|phtml)\$">\nSetHandler %s\n</FilesMatch>\n\n' "\$H"; cat public/.htaccess; } > public/.htaccess.new
+          mv public/.htaccess.new public/.htaccess
 
           # Atomic switch
           ln -sfn "\$R" "\$APP_DIR/current.tmp" && mv -Tf "\$APP_DIR/current.tmp" "\$APP_DIR/current"
