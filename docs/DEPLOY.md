@@ -7,13 +7,12 @@ Hostinger as a new release, runs migrations, then switches the `current` symlink
 ## Server layout
 
 ```
-/home/u836570940/domains/mysacom.com/
-  sacom-inventory/
-    releases/<git-sha>/      last 5 kept
-    shared/.env              production config (never in git)
-    shared/storage/          logs, sessions, uploads
-    current -> releases/<sha>
-  public_html/stock -> sacom-inventory/current/public   (subdomain web root)
+/home/u836570940/sacom-inventory/        app lives here, separate from the mysacom.com site
+  releases/<git-sha>/                    last 5 kept
+  shared/.env, shared/storage/
+  current -> releases/<sha>
+/home/u836570940/domains/mysacom.com/public_html/stock -> /home/u836570940/sacom-inventory/current/public
+                                         (stock.mysacom.com web root, set by hPanel; only this link)
 ```
 
 ## One-time setup
@@ -31,6 +30,6 @@ Hostinger as a new release, runs migrations, then switches the `current` symlink
 
 ## Later
 
-- Cron (Phase 3 backups/scheduler): `* * * * * cd ~/domains/mysacom.com/sacom-inventory/current && php artisan schedule:run >> /dev/null 2>&1`
+- Cron (Phase 3 backups/scheduler): `* * * * * cd ~/sacom-inventory/current && php artisan schedule:run >> /dev/null 2>&1`
 - Rollback: `ln -sfn releases/<old-sha> current` inside `sacom-inventory/` (migrations are not rolled back).
 - Forgot admin password: see design spec §8.

@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      APP_DIR: ${{ vars.APP_DIR || '/home/u836570940/domains/mysacom.com/sacom-inventory' }}
+      APP_DIR: ${{ vars.APP_DIR || '/home/u836570940/sacom-inventory' }}
       WEB_ROOT: ${{ vars.WEB_ROOT || '/home/u836570940/domains/mysacom.com/public_html/stock' }}
       PHP_BIN: ${{ vars.PHP_BIN || 'php' }}
       RELEASE: ${{ github.sha }}
