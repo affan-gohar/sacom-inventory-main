@@ -67,13 +67,14 @@ class ProductResource extends Resource
         $mainId = fn () => Shop::main()->id;
 
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('category')
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('category', 'owner:id,name')
                 ->withSum(['stock as main_qty' => fn ($q) => $q->where('shop_id', $mainId())], 'qty_main')
                 ->withSum('stock as total_main', 'qty_main')
                 ->withSum('stock as total_local', 'qty_local'))
             ->columns([
                 TextColumn::make('name')->searchable()->sortable(),
                 TextColumn::make('category.name')->sortable(),
+                TextColumn::make('owner.name')->label('Local to')->badge()->color('gray')->placeholder('Main catalogue')->toggleable(),
                 TextColumn::make('selling_price')->label('Selling')->money('MYR', locale: 'ms_MY')->sortable(),
                 TextColumn::make('purchase_cost')->label('Cost')->money('MYR', locale: 'ms_MY')->placeholder('—')->toggleable(),
                 TextColumn::make('main_qty')->label('Main Shop')->numeric()->default(0)->sortable()
@@ -86,6 +87,16 @@ class ProductResource extends Resource
             ->filters([
                 SelectFilter::make('category')->relationship('category', 'name'),
                 TernaryFilter::make('is_active')->label('Active')->default(true),
+                TernaryFilter::make('local')->label('Catalogue')
+                    ->placeholder('All products')
+                    ->trueLabel('Branch-local products only')
+                    ->falseLabel('Main Shop catalogue only')
+                    ->default(false)
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereNotNull('shop_id'),
+                        false: fn (Builder $query) => $query->whereNull('shop_id'),
+                        blank: fn (Builder $query) => $query,
+                    ),
             ])
             ->recordUrl(fn (Product $record) => self::getUrl('view', ['record' => $record]))
             ->recordActions([

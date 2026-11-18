@@ -45,5 +45,6 @@ If `vendor/` is missing, install it first:
 ## Status
 
 - **Phase 1 (core stock): done.** Catalogue, shops + logins, stock-in, local stock-in, transfers (invoice per transfer), Tier 2 sales, counter sales, returns, delete with guards, audit log, read-only portal (dashboard, stock, invoices, 6-month history).
+- **Change requests v8 (2026-11-18): done.** Free-text local stock-in (creates branch-local products, `products.shop_id`), per-login read-only "Other Shops Stock" page + dashboard cards (`user_shop_access`), custom passwords for logins and admin (`/admin/change-password`), QR card without invoice ref, product history Excel export.
 - **Phase 2 (credit & invoicing): next.** Clearance screen (pay by quantity — domain logic `RecordPayment` already built and tested), branded invoice PDF/print, monthly statement.
 - **Phase 3:** admin dashboard cards, low-stock alerts page, reports (screen/PDF/CSV), nightly backup, Hostinger deploy.

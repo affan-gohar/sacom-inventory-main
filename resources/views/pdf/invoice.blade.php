@@ -111,10 +111,9 @@
     <tr>
         <td style="width:38%; vertical-align:top">
             @if($qr)
-                <div style="text-align:center; width:150px; border:1px solid #d1d5db; border-radius:6px; padding:8px">
-                    <img src="{{ $qr }}" style="width:130px; height:130px" alt="Payment QR">
-                    <div style="font-size:9.5px; font-weight:bold; margin-top:4px">{{ $qrCaption ?: 'Scan to pay' }}</div>
-                    <div class="muted" style="font-size:8.5px">Ref: {{ $invoice->number }}</div>
+                <div style="text-align:center; width:180px; border:1px solid #d1d5db; border-radius:6px; padding:6px">
+                    <img src="{{ $qr }}" style="width:168px; height:168px; display:block; margin:0 auto" alt="Payment QR">
+                    <div style="font-size:10px; font-weight:bold; margin-top:3px">{{ $qrCaption ?: 'Scan to pay' }}</div>
                 </div>
             @endif
         </td>

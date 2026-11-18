@@ -89,7 +89,7 @@ class ViewShop extends ViewRecord
                     ->modalHeading(fn () => "Local stock-in — {$shop()->name}")->modalWidth(Width::FourExtraLarge)
                     ->modalDescription('Bought by the branch from a local supplier. Not invoiced and not owed to the Main Shop.')
                     ->schema([
-                        InventoryForm::lines('cost', fn () => $shop()->id),
+                        InventoryForm::lines('cost', fn () => $shop()->id, freeText: true),
                         InventoryForm::total('unit_cost'),
                         InventoryForm::note('Dealer name / note (optional)'),
                         InventoryForm::date(),

@@ -4,6 +4,12 @@ namespace App\Filament\Resources\Products\RelationManagers;
 
 use App\Enums\TransactionType;
 use App\Models\StockMovement;
+use Filament\Actions\Action;
+use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Str;
+use OpenSpout\Common\Entity\Row;
+use OpenSpout\Writer\XLSX\Writer;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Filament\Forms\Components\DatePicker;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
@@ -50,6 +56,10 @@ class MovementsRelationManager extends RelationManager
                 TextColumn::make('transaction.note')->label('Note')->limit(40)->placeholder('—'),
             ])
             ->defaultSort(fn (Builder $query) => $query->orderByDesc('occurred_at')->orderByDesc('id'))
+            ->headerActions([
+                Action::make('exportExcel')->label('Export Excel')->icon(Heroicon::OutlinedArrowDownTray)->color('success')
+                    ->action(fn () => $this->exportExcel()),
+            ])
             ->filters([
                 SelectFilter::make('shop')->relationship('shop', 'name')->searchable()->preload(),
                 SelectFilter::make('type')->label('Action')->multiple()
@@ -66,6 +76,35 @@ class MovementsRelationManager extends RelationManager
                         ->when($data['until'] ?? null, fn ($q, $d) => $q->whereDate('occurred_at', '<=', $d)))
                     ->indicateUsing(fn (array $data) => ($data['from'] ?? null) ? 'From '.$data['from'] : null),
             ]);
+    }
+
+    /** Download exactly the rows the table shows now (same filters, search and sort) as .xlsx. */
+    protected function exportExcel(): BinaryFileResponse
+    {
+        $rows = $this->getFilteredSortedTableQuery()->get();
+        $path = tempnam(sys_get_temp_dir(), 'history').'.xlsx';
+
+        $writer = new Writer;
+        $writer->openToFile($path);
+        $writer->addRow(Row::fromValues(['Date', 'Action', 'Shop', 'In / Out', 'Stock after (at that shop)', 'Price (RM)', 'Invoice', 'Note']));
+        foreach ($rows as $m) {
+            /** @var StockMovement $m */
+            $writer->addRow(Row::fromValues([
+                $m->occurred_at?->timezone(config('app.timezone'))->format('d M Y, H:i'),
+                self::describe($m),
+                $m->shop?->name,
+                $m->qty > 0 ? "+{$m->qty}" : (string) $m->qty,
+                (int) $m->stock_after,
+                $m->unit_price !== null ? (float) $m->unit_price : null,
+                $m->transaction?->invoice?->number,
+                $m->transaction?->note,
+            ]));
+        }
+        $writer->close();
+
+        $name = Str::slug($this->getOwnerRecord()->name).'-history-'.now()->format('Y-m-d').'.xlsx';
+
+        return response()->download($path, $name)->deleteFileAfterSend();
     }
 
     /** Plain-language description of one movement, e.g. "Transferred to Zen Shop". */
