@@ -91,7 +91,18 @@ jobs:
             User ${{ secrets.SSH_USER }}
             IdentityFile ~/.ssh/deploy
             IdentitiesOnly yes
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+            ControlMaster auto
+            ControlPath ~/.ssh/cm-%r@%h-%p
+            ControlPersist 10m
           CFG
+          # Open one shared connection (Hostinger drops bursts of new SSH logins); retry with backoff.
+          for i in 1 2 3 4; do
+            ssh -o ConnectTimeout=20 hostinger true && break
+            [ "$i" = 4 ] && { echo "::error::Could not open SSH connection to Hostinger"; exit 1; }
+            echo "SSH attempt $i failed; retrying in $((i*20))s"; sleep $((i*20))
+          done
 
       - name: Render production .env (used only on first deploy)
         env:
