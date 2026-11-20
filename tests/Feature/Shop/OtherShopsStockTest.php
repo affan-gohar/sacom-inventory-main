@@ -60,10 +60,11 @@ it('shows one dashboard card per allowed shop', function () {
     $this->get('/shop')->assertOk();
 });
 
-it('hides the page and the cards when the admin allows no shops', function () {
+it('keeps the menu item but shows nothing, and no cards, when the admin allows no shops', function () {
     $this->viewer->viewableShops()->sync([]);
 
-    $this->get('/shop/other-shops-stock')->assertForbidden();
+    $this->get('/shop/other-shops-stock')->assertOk()->assertSee('No shops shared with you yet');
+    Livewire::test(ListOtherShopsStock::class)->assertCanNotSeeTableRecords(ShopStock::all());
     $this->get('/shop')->assertOk();
     expect(OtherShopsOverview::canView())->toBeFalse();
 });

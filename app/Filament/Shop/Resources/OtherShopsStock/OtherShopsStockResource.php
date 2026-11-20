@@ -42,14 +42,15 @@ class OtherShopsStockResource extends Resource
         return $user instanceof User ? $user->visibleOtherShops()->pluck('id')->all() : [];
     }
 
+    /** Always in the sidebar (below History); what it shows is limited to the shops the admin ticked. */
     public static function canAccess(): bool
     {
-        return self::allowedShopIds() !== [];
+        return true;
     }
 
     public static function canViewAny(): bool
     {
-        return self::canAccess();
+        return true;
     }
 
     public static function canCreate(): bool
@@ -84,7 +85,10 @@ class OtherShopsStockResource extends Resource
                 ->orderBy(Product::query()->select('name')->whereColumn('products.id', 'shop_stock.product_id'))
                 ->orderBy('shop_id'))
             ->searchPlaceholder('Search product (e.g. Wireless Mouse)')
-            ->emptyStateHeading('No stock found')
+            ->emptyStateHeading(fn () => self::allowedShopIds() === [] ? 'No shops shared with you yet' : 'No stock found')
+            ->emptyStateDescription(fn () => self::allowedShopIds() === []
+                ? 'Ask the admin to tick the shops you may view under your login (Shops → your shop → Logins → Edit).'
+                : 'Try another product name.')
             ->recordActions([])
             ->toolbarActions([]);
     }
